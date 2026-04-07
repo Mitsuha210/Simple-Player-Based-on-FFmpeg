@@ -140,7 +140,7 @@ void AudioRenderer::render(FramePtr frame, Clock& audio_clock, AVRational time_b
     }
 
     const std::uint32_t max_queued_bytes =
-        static_cast<std::uint32_t>(target_sample_rate_ * channel_count * bytes_per_sample_);
+        static_cast<std::uint32_t>(target_sample_rate_ * channel_count * bytes_per_sample_ * 0.1) ;
     while (!stop_requested_.load() && SDL_GetQueuedAudioSize(device_id_) > max_queued_bytes) {
         SDL_Delay(5);
     }
@@ -152,15 +152,27 @@ void AudioRenderer::render(FramePtr frame, Clock& audio_clock, AVRational time_b
     if (SDL_QueueAudio(device_id_, pcm_buffer_.data(), static_cast<Uint32>(converted_size)) != 0) {
         throw_sdl_error("SDL_QueueAudio failed");
     }
-    if (!started_) {
+    if (!started_) { //第一次启动
         SDL_PauseAudioDevice(device_id_, 0);
         started_ = true;
     }
 
     // swr_convert is needed because codec output formats are not stable across media streams.
     const int64_t pts = frame->best_effort_timestamp;
+    const double_t frame_pts_seconds = pts * av_q2d(time_base);
+    const double frame_duration_seconds = 
+    static_cast<double>(converted_samples) / static_cast<double>(target_sample_rate_);
+    const double bytes_per_second =
+        static_cast<double>(target_sample_rate_) *
+        static_cast<double>(channel_count) *
+        static_cast<double>(bytes_per_sample_);
+    double_t queued_seconds = 
+    SDL_GetQueuedAudioSize(device_id_) / bytes_per_second;
+    //真实播放时间 = 队列末尾时间 - 队列剩余长度
+    double_t actual_audio_clock = 
+    frame_pts_seconds + frame_duration_seconds - queued_seconds;
     if (pts != AV_NOPTS_VALUE) {
-        audio_clock.set(pts * av_q2d(time_base));
+        audio_clock.set(actual_audio_clock);
     }
 }
 
