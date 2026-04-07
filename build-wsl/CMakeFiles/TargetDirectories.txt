@@ -1,0 +1,3 @@
+/mnt/e/SDU/大五/FFMPEG/sim_player_test/build-wsl/CMakeFiles/sim_player.dir
+/mnt/e/SDU/大五/FFMPEG/sim_player_test/build-wsl/CMakeFiles/edit_cache.dir
+/mnt/e/SDU/大五/FFMPEG/sim_player_test/build-wsl/CMakeFiles/rebuild_cache.dir
