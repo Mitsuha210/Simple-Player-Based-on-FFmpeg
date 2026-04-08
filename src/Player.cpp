@@ -1,5 +1,8 @@
 #include "player/Player.h"
 
+#include <algorithm>
+#include <stdexcept>
+
 namespace sim_player {
 
 Player::Player() : demuxer_(audio_packets_, video_packets_) {}
@@ -9,80 +12,86 @@ Player::~Player() {
 }
 
 void Player::open(const std::string& input_path) {
-    //清空错误状态
-    error_.store(false); 
+    error_.store(false);
     stopping_.store(false);
+    paused_.store(false);
     {
         std::lock_guard<std::mutex> lock(error_mutex_);
         last_error_.clear();
     }
 
-    demuxer_.open(input_path);//打开媒体文件
+    demuxer_.open(input_path);
     demuxer_.set_error_callback([this](const std::string& message) { report_error(message); });
 
-    //读取demuxer_找到音视频流
     const MediaStreams& streams = demuxer_.streams();
     if (streams.audio != nullptr) {
-        //如果有音频流->创建音频解码器audio_decoder
         audio_decoder_ = std::make_unique<Decoder>(
             Decoder::Kind::Audio, streams.audio, audio_packets_, audio_clock_, &audio_renderer_, nullptr);
-        //注册错误回调
         audio_decoder_->set_error_callback([this](const std::string& message) { report_error(message); });
     }
 
     if (streams.video != nullptr) {
-        //如果有视频流->创建视频解码器video_decoder
         video_decoder_ = std::make_unique<Decoder>(
             Decoder::Kind::Video, streams.video, video_packets_, audio_clock_, nullptr, &video_renderer_, &video_frames_);
         video_decoder_->set_error_callback([this](const std::string& message) { report_error(message); });
     }
 
-    opened_.store(true); //成功打开
+    opened_.store(true);
+    set_progress_preview(0.0, false);
 }
 
 void Player::play() {
-    if (!opened_.load()) { //检查是否已成功打开文件
+    if (!opened_.load()) {
         throw std::runtime_error("player not opened");
     }
 
-    if (audio_decoder_ != nullptr) {
-        audio_decoder_->start(); //启动！
+    seek_internal(current_position_seconds(), true);
+}
+
+void Player::pause() {
+    if (!opened_.load()) {
+        return;
     }
-    if (video_decoder_ != nullptr) {
-        video_decoder_->start();
+    if (paused_.load()) {
+        refresh_video();
+        return;
     }
-    //不是先解码再解复用，而是先启动消费者线程再启动生产者线程
-    //如果反过来写可能导致堵塞甚至丢帧
-    //一旦 demuxer 开始往队列里塞数据，最好已经有消费者在等着处理，避免队列很快积压
-    demuxer_.start(); //启动demuxer线程
-    playing_.store(true);
+
+    const double paused_position = current_position_seconds();
+    paused_.store(true);
+    playing_.store(false);
+    audio_renderer_.set_paused(true);
+    set_progress_preview(paused_position, false);
+    audio_clock_.set(paused_position);
+    stop_workers();
+    refresh_video();
+}
+
+void Player::resume() {
+    if (!opened_.load()) {
+        return;
+    }
+    seek_internal(current_position_seconds(), true);
+}
+
+void Player::toggle_pause() {
+    if (paused_.load()) {
+        resume();
+    } else {
+        pause();
+    }
 }
 
 void Player::stop() {
-    //点击关闭关不掉的源头->阻塞中线程没清除导致一直阻塞->关不掉
     if (stopping_.exchange(true)) {
         return;
     }
 
-    // Abort every blocking queue before joining workers, otherwise the video decoder
-    // can stay stuck waiting to push frames while the main thread is already exiting.
-    audio_packets_.abort();
-    video_packets_.abort();
-    video_frames_.abort();
-    audio_renderer_.request_stop();
-    video_renderer_.request_stop();
-    demuxer_.stop();
-
-    if (audio_decoder_ != nullptr) {
-        audio_decoder_->stop();
-    }
-    if (video_decoder_ != nullptr) {
-        video_decoder_->stop();
-    }
-
+    playing_.store(false);
+    paused_.store(false);
+    stop_workers();
     audio_renderer_.close();
     video_renderer_.close();
-    playing_.store(false);
     stopping_.store(false);
 }
 
@@ -100,8 +109,6 @@ bool Player::is_finished() const {
 
     const bool audio_done = audio_decoder_ == nullptr || audio_decoder_->finished();
     const bool video_done = video_decoder_ == nullptr || video_decoder_->finished();
-
-    //全部满足才关闭
     return audio_done && video_done && video_frames_.empty();
 }
 
@@ -111,13 +118,49 @@ std::string Player::last_error() const {
 }
 
 void Player::pump_video() {
-    auto item = video_frames_.try_pop();//try从frames中取出一帧
-    if (!item.has_value()) {
+    if (paused_.load()) {
         return;
     }
-    //放入renderer中进行渲染显示
-    //-->视频显示不再发生在视频解码线程，而是发生在主线程。
-    video_renderer_.render(std::move(item->frame), audio_clock_, item->time_base);
+
+    auto item = video_frames_.try_pop();
+    if (item.has_value()) {
+        video_renderer_.render(std::move(item->frame), audio_clock_, item->time_base);
+    }
+    set_progress_preview(current_position_seconds(), false);
+}
+
+void Player::refresh_video() {
+    video_renderer_.present();
+}
+
+void Player::seek_to(double position_seconds) {
+    seek_internal(position_seconds, !paused_.load());
+}
+
+void Player::seek_relative(double delta_seconds) {
+    seek_to(current_position_seconds() + delta_seconds);
+}
+
+double Player::duration_seconds() const {
+    return demuxer_.duration_seconds();
+}
+
+double Player::current_position_seconds() const {
+    const double audio_position = audio_clock_.get();
+    const double video_position = video_renderer_.current_pts();
+    return std::max(audio_position, video_position);
+}
+
+void Player::set_progress_preview(double position_seconds, bool dragging) {
+    video_renderer_.set_progress(position_seconds, duration_seconds(), dragging);
+}
+
+bool Player::is_progress_bar_hit(int x, int y) const {
+    return video_renderer_.is_progress_bar_hit(x, y);
+}
+
+double Player::progress_position_from_x(int x) const {
+    return video_renderer_.progress_from_x(x);
 }
 
 void Player::report_error(const std::string& message) {
@@ -128,6 +171,75 @@ void Player::report_error(const std::string& message) {
     error_.store(true);
     audio_packets_.abort();
     video_packets_.abort();
+    video_frames_.abort();
+}
+
+void Player::seek_internal(double position_seconds, bool resume_after_seek) {
+    if (!opened_.load()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const double duration = duration_seconds();
+    const double clamped = duration > 0.0 ? std::clamp(position_seconds, 0.0, duration) : std::max(0.0, position_seconds);
+
+    stop_workers();
+    audio_packets_.reset();
+    video_packets_.reset();
+    video_frames_.reset();
+
+    if (audio_decoder_ != nullptr) {
+        audio_decoder_->flush();
+    }
+    if (video_decoder_ != nullptr) {
+        video_decoder_->flush();
+    }
+
+    demuxer_.seek(clamped);
+    audio_clock_.set(clamped);
+    audio_renderer_.set_paused(!resume_after_seek);
+    audio_renderer_.flush();
+    set_progress_preview(clamped, false);
+    video_renderer_.flush();
+
+    paused_.store(!resume_after_seek);
+    playing_.store(resume_after_seek);
+    if (resume_after_seek) {
+        restart_workers();
+    }
+}
+
+void Player::restart_workers() {
+    audio_packets_.reset();
+    video_packets_.reset();
+    video_frames_.reset();
+
+    if (audio_decoder_ != nullptr) {
+        audio_decoder_->start();
+    }
+    if (video_decoder_ != nullptr) {
+        video_decoder_->start();
+    }
+    demuxer_.start();
+}
+
+void Player::stop_workers() {
+    audio_packets_.abort();
+    video_packets_.abort();
+    video_frames_.abort();
+    audio_renderer_.request_stop();
+    video_renderer_.request_stop();
+    demuxer_.stop();
+
+    if (audio_decoder_ != nullptr) {
+        audio_decoder_->stop();
+    }
+    if (video_decoder_ != nullptr) {
+        video_decoder_->stop();
+    }
+
+    audio_renderer_.flush();
+    video_renderer_.flush();
 }
 
 }  // namespace sim_player

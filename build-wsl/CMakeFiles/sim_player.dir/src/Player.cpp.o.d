@@ -267,4 +267,6 @@ CMakeFiles/sim_player.dir/src/Player.cpp.o: \
  /usr/include/c++/13/bits/uniform_int_dist.h /usr/include/c++/13/thread \
  /usr/include/c++/13/bits/std_thread.h \
  /usr/include/c++/13/bits/this_thread_sleep.h \
- /mnt/e/SDU/大五/FFMPEG/sim_player_test/include/player/Demuxer.h
+ /mnt/e/SDU/大五/FFMPEG/sim_player_test/include/player/Demuxer.h \
+ /usr/include/c++/13/algorithm \
+ /usr/include/c++/13/pstl/glue_algorithm_defs.h

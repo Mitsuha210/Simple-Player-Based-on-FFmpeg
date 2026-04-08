@@ -59,11 +59,13 @@ Decoder::~Decoder() {
 
 void Decoder::start() {
     finished_.store(false);
-    if (kind_ == Kind::Audio && audio_renderer_ != nullptr) {
+    if (kind_ == Kind::Audio && audio_renderer_ != nullptr && !renderer_opened_) {
         audio_renderer_->open(*codec_context_);
+        renderer_opened_ = true;
     }
-    if (kind_ == Kind::Video && video_renderer_ != nullptr) {
+    if (kind_ == Kind::Video && video_renderer_ != nullptr && !renderer_opened_) {
         video_renderer_->open(*codec_context_);
+        renderer_opened_ = true;
     }
 
     running_.store(true);
@@ -75,6 +77,12 @@ void Decoder::stop() {
     packet_queue_.abort();
     if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
         worker_.join();
+    }
+}
+
+void Decoder::flush() {
+    if (codec_context_ != nullptr) {
+        avcodec_flush_buffers(codec_context_);
     }
 }
 

@@ -10,7 +10,9 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <array>
 #include <mutex>
+#include <string>
 #include <thread>
 
 namespace sim_player {
@@ -18,9 +20,78 @@ namespace sim_player {
 namespace {
 
 std::once_flag g_sdl_once;
+constexpr int kProgressBarHeight = 20;
+constexpr int kProgressBarMargin = 12;
+constexpr int kGlyphScale = 2;
+constexpr int kGlyphWidth = 3;
+constexpr int kGlyphHeight = 5;
+constexpr int kGlyphSpacing = 2;
 
 void throw_sdl_error(const char* what) {
     throw std::runtime_error(std::string(what) + ": " + SDL_GetError());
+}
+
+std::array<const char*, kGlyphHeight> glyph_for_char(char c) {
+    switch (c) {
+    case '0':
+        return {"111", "101", "101", "101", "111"};
+    case '1':
+        return {"010", "110", "010", "010", "111"};
+    case '2':
+        return {"111", "001", "111", "100", "111"};
+    case '3':
+        return {"111", "001", "111", "001", "111"};
+    case '4':
+        return {"101", "101", "111", "001", "001"};
+    case '5':
+        return {"111", "100", "111", "001", "111"};
+    case '6':
+        return {"111", "100", "111", "101", "111"};
+    case '7':
+        return {"111", "001", "001", "001", "001"};
+    case '8':
+        return {"111", "101", "111", "101", "111"};
+    case '9':
+        return {"111", "101", "111", "001", "111"};
+    case ':':
+        return {"000", "010", "000", "010", "000"};
+    case '/':
+        return {"001", "001", "010", "100", "100"};
+    case ' ':
+    default:
+        return {"000", "000", "000", "000", "000"};
+    }
+}
+
+std::string format_time_label(double seconds) {
+    const int total_seconds = std::max(0, static_cast<int>(seconds + 0.5));
+    const int minutes = total_seconds / 60;
+    const int remainder = total_seconds % 60;
+
+    std::string label = std::to_string(minutes);
+    if (remainder < 10) {
+        label += ":0";
+    } else {
+        label += ":";
+    }
+    label += std::to_string(remainder);
+    return label;
+}
+
+void draw_text(SDL_Renderer* renderer, int x, int y, const std::string& text) {
+    for (char c : text) {
+        const auto glyph = glyph_for_char(c);
+        for (int row = 0; row < kGlyphHeight; ++row) {
+            for (int col = 0; col < kGlyphWidth; ++col) {
+                if (glyph[row][col] != '1') {
+                    continue;
+                }
+                SDL_Rect pixel {x + col * kGlyphScale, y + row * kGlyphScale, kGlyphScale, kGlyphScale};
+                SDL_RenderFillRect(renderer, &pixel);
+            }
+        }
+        x += kGlyphWidth * kGlyphScale + kGlyphSpacing;
+    }
 }
 
 }  // namespace
@@ -42,6 +113,7 @@ void AudioRenderer::open(const AVCodecContext& codec_context) {
     ensure_sdl_initialized();
     sdl_ready_ = true;
     stop_requested_.store(false);
+    paused_ = false;
     target_sample_format_ = AV_SAMPLE_FMT_S16;
     target_sample_rate_ = codec_context.sample_rate > 0 ? codec_context.sample_rate : 48000;
 
@@ -111,6 +183,25 @@ void AudioRenderer::request_stop() {
     }
 }
 
+void AudioRenderer::set_paused(bool paused) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    paused_ = paused;
+    if (device_id_ != 0) {
+        SDL_PauseAudioDevice(device_id_, paused ? 1 : 0);
+    }
+}
+
+void AudioRenderer::flush() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stop_requested_.store(false);
+    if (device_id_ != 0) {
+        SDL_ClearQueuedAudio(device_id_);
+        if (!paused_) {
+            SDL_PauseAudioDevice(device_id_, 0);
+        }
+    }
+}
+
 void AudioRenderer::render(FramePtr frame, Clock& audio_clock, AVRational time_base) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stop_requested_.load() || device_id_ == 0 || swr_context_ == nullptr) {
@@ -153,7 +244,7 @@ void AudioRenderer::render(FramePtr frame, Clock& audio_clock, AVRational time_b
         throw_sdl_error("SDL_QueueAudio failed");
     }
     if (!started_) { //第一次启动
-        SDL_PauseAudioDevice(device_id_, 0);
+        SDL_PauseAudioDevice(device_id_, paused_ ? 1 : 0);
         started_ = true;
     }
 
@@ -242,6 +333,10 @@ void VideoRenderer::open(const AVCodecContext& codec_context) {
 
     last_video_pts_ = 0.0;
     has_last_video_pts_ = false;
+    displayed_pts_ = 0.0;
+    progress_position_seconds_ = 0.0;
+    progress_duration_seconds_ = 0.0;
+    dragging_progress_ = false;
 }
 
 void VideoRenderer::close() {
@@ -268,11 +363,33 @@ void VideoRenderer::close() {
     width_ = 0;
     height_ = 0;
     has_last_video_pts_ = false;
+    displayed_pts_ = 0.0;
+    progress_position_seconds_ = 0.0;
+    progress_duration_seconds_ = 0.0;
+    dragging_progress_ = false;
     sdl_ready_ = false;
 }
 
 void VideoRenderer::request_stop() {
     stop_requested_.store(true);
+}
+
+void VideoRenderer::flush() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stop_requested_.store(false);
+    last_video_pts_ = 0.0;
+    has_last_video_pts_ = false;
+    displayed_pts_ = progress_position_seconds_;
+    if (renderer_ == nullptr) {
+        return;
+    }
+    if (SDL_SetRenderDrawColor(renderer_, 0, 0, 0, SDL_ALPHA_OPAQUE) != 0) {
+        throw_sdl_error("SDL_SetRenderDrawColor failed");
+    }
+    if (SDL_RenderClear(renderer_) != 0) {
+        throw_sdl_error("SDL_RenderClear failed");
+    }
+    draw_scene_locked();
 }
 
 void VideoRenderer::render(FramePtr frame, const Clock& master_clock, AVRational time_base) {
@@ -317,9 +434,93 @@ void VideoRenderer::render(FramePtr frame, const Clock& master_clock, AVRational
     if (SDL_RenderClear(renderer_) != 0) {
         throw_sdl_error("SDL_RenderClear failed");
     }
+    displayed_pts_ = video_pts;
+    draw_scene_locked();
+}
+
+void VideoRenderer::present() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (renderer_ == nullptr || texture_ == nullptr) {
+        return;
+    }
+    if (SDL_RenderClear(renderer_) != 0) {
+        throw_sdl_error("SDL_RenderClear failed");
+    }
+    draw_scene_locked();
+}
+
+void VideoRenderer::set_progress(double position_seconds, double duration_seconds, bool dragging) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    progress_position_seconds_ = std::max(0.0, position_seconds);
+    progress_duration_seconds_ = std::max(0.0, duration_seconds);
+    dragging_progress_ = dragging;
+}
+
+bool VideoRenderer::is_progress_bar_hit(int x, int y) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (renderer_ == nullptr || width_ <= 0 || height_ <= 0) {
+        return false;
+    }
+    const int left = kProgressBarMargin;
+    const int right = width_ - kProgressBarMargin;
+    const int top = height_ - kProgressBarHeight - kProgressBarMargin;
+    const int bottom = height_ - kProgressBarMargin;
+    return x >= left && x <= right && y >= top && y <= bottom;
+}
+
+double VideoRenderer::progress_from_x(int x) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (width_ <= 0 || progress_duration_seconds_ <= 0.0) {
+        return 0.0;
+    }
+    const int left = kProgressBarMargin;
+    const int right = width_ - kProgressBarMargin;
+    const double ratio =
+        std::clamp(static_cast<double>(x - left) / static_cast<double>(std::max(1, right - left)), 0.0, 1.0);
+    return ratio * progress_duration_seconds_;
+}
+
+double VideoRenderer::current_pts() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return displayed_pts_;
+}
+
+void VideoRenderer::draw_scene_locked() {
+    if (renderer_ == nullptr || texture_ == nullptr) {
+        return;
+    }
     if (SDL_RenderCopy(renderer_, texture_, nullptr, nullptr) != 0) {
         throw_sdl_error("SDL_RenderCopy failed");
     }
+
+    if (progress_duration_seconds_ > 0.0 && width_ > 0 && height_ > 0) {
+        const int left = kProgressBarMargin;
+        const int top = height_ - kProgressBarHeight - kProgressBarMargin;
+        const int bar_width = std::max(1, width_ - 2 * kProgressBarMargin);
+        SDL_Rect background {left, top, bar_width, kProgressBarHeight};
+        SDL_Rect fill = background;
+        const double ratio = std::clamp(progress_position_seconds_ / progress_duration_seconds_, 0.0, 1.0);
+        fill.w = std::max(1, static_cast<int>(bar_width * ratio));
+
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 180);
+        SDL_RenderFillRect(renderer_, &background);
+        if (dragging_progress_) {
+            SDL_SetRenderDrawColor(renderer_, 255, 180, 60, 230);
+        } else {
+            SDL_SetRenderDrawColor(renderer_, 80, 200, 120, 230);
+        }
+        SDL_RenderFillRect(renderer_, &fill);
+        SDL_SetRenderDrawColor(renderer_, 240, 240, 240, 255);
+        SDL_RenderDrawRect(renderer_, &background);
+
+        const std::string label =
+            format_time_label(progress_position_seconds_) + " / " + format_time_label(progress_duration_seconds_);
+        const int text_y = top + (kProgressBarHeight - kGlyphHeight * kGlyphScale) / 2;
+        SDL_SetRenderDrawColor(renderer_, 250, 250, 250, 255);
+        draw_text(renderer_, left + 8, text_y, label);
+    }
+
     SDL_RenderPresent(renderer_);
 }
 

@@ -9,8 +9,8 @@
 #include <mutex>
 #include <vector>
 
-struct SwrContext; //澶勭悊闊抽
-struct SwsContext; //澶勭悊瑙嗛
+struct SwrContext;
+struct SwsContext;
 typedef uint32_t SDL_AudioDeviceID;
 struct SDL_Window;
 struct SDL_Renderer;
@@ -26,13 +26,15 @@ public:
     virtual void open(const AVCodecContext& codec_context);
     virtual void close();
     virtual void request_stop();
+    virtual void set_paused(bool paused);
+    virtual void flush();
     virtual void render(FramePtr frame, Clock& audio_clock, AVRational time_base);
 
 private:
     static void ensure_sdl_initialized();
 
     SDL_AudioDeviceID device_id_ = 0;
-    SwrContext* swr_context_ = nullptr; //libswresample 鐨勪笂涓嬫枃锛岃礋璐ｆ牱鏈牸寮忋€佸０閬撳竷灞€銆侀噰鏍风巼杞崲
+    SwrContext* swr_context_ = nullptr;
     AVChannelLayout target_layout_ {};
     int target_sample_rate_ = 0;
     AVSampleFormat target_sample_format_ = AV_SAMPLE_FMT_NONE;
@@ -40,7 +42,8 @@ private:
     bool started_ = false;
     bool sdl_ready_ = false;
     std::atomic<bool> stop_requested_ {false};
-    std::mutex mutex_;
+    bool paused_ = false;
+    mutable std::mutex mutex_;
     std::vector<std::uint8_t> pcm_buffer_;
 };
 
@@ -52,11 +55,18 @@ public:
     virtual void open(const AVCodecContext& codec_context);
     virtual void close();
     virtual void request_stop();
+    virtual void flush();
     virtual void render(FramePtr frame, const Clock& master_clock, AVRational time_base);
+    virtual void present();
+    virtual void set_progress(double position_seconds, double duration_seconds, bool dragging);
+    virtual bool is_progress_bar_hit(int x, int y) const;
+    virtual double progress_from_x(int x) const;
+    virtual double current_pts() const;
 
 private:
     static void ensure_sdl_initialized();
     std::chrono::milliseconds compute_delay(double video_pts, double master_pts);
+    void draw_scene_locked();
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
@@ -68,9 +78,13 @@ private:
     int height_ = 0;
     double last_video_pts_ = 0.0;
     bool has_last_video_pts_ = false;
+    double displayed_pts_ = 0.0;
+    double progress_position_seconds_ = 0.0;
+    double progress_duration_seconds_ = 0.0;
+    bool dragging_progress_ = false;
     bool sdl_ready_ = false;
     std::atomic<bool> stop_requested_ {false};
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
 };
 
 }  // namespace sim_player

@@ -66,6 +66,16 @@ public:
         not_full_.notify_all();
     }
 
+    void reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        aborted_ = false;
+        while (!queue_.empty()) {
+            queue_.pop();
+        }
+        not_empty_.notify_all();
+        not_full_.notify_all();
+    }
+
     bool empty() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return queue_.empty();

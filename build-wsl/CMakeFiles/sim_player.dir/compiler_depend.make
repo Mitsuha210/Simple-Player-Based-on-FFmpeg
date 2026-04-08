@@ -309,6 +309,7 @@ CMakeFiles/sim_player.dir/src/Demuxer.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player
   /usr/include/alloca.h \
   /usr/include/asm-generic/errno-base.h \
   /usr/include/asm-generic/errno.h \
+  /usr/include/c++/13/algorithm \
   /usr/include/c++/13/array \
   /usr/include/c++/13/atomic \
   /usr/include/c++/13/backward/auto_ptr.h \
@@ -425,6 +426,7 @@ CMakeFiles/sim_player.dir/src/Demuxer.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player
   /usr/include/c++/13/new \
   /usr/include/c++/13/optional \
   /usr/include/c++/13/pstl/execution_defs.h \
+  /usr/include/c++/13/pstl/glue_algorithm_defs.h \
   /usr/include/c++/13/pstl/glue_memory_defs.h \
   /usr/include/c++/13/pstl/pstl_config.h \
   /usr/include/c++/13/queue \
@@ -611,6 +613,7 @@ CMakeFiles/sim_player.dir/src/Player.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player_
   /usr/include/alloca.h \
   /usr/include/asm-generic/errno-base.h \
   /usr/include/asm-generic/errno.h \
+  /usr/include/c++/13/algorithm \
   /usr/include/c++/13/array \
   /usr/include/c++/13/atomic \
   /usr/include/c++/13/backward/auto_ptr.h \
@@ -728,6 +731,7 @@ CMakeFiles/sim_player.dir/src/Player.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player_
   /usr/include/c++/13/new \
   /usr/include/c++/13/optional \
   /usr/include/c++/13/pstl/execution_defs.h \
+  /usr/include/c++/13/pstl/glue_algorithm_defs.h \
   /usr/include/c++/13/pstl/glue_memory_defs.h \
   /usr/include/c++/13/pstl/pstl_config.h \
   /usr/include/c++/13/queue \
@@ -961,6 +965,7 @@ CMakeFiles/sim_player.dir/src/RendererSDL.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_pl
   /usr/include/asm-generic/errno-base.h \
   /usr/include/asm-generic/errno.h \
   /usr/include/c++/13/algorithm \
+  /usr/include/c++/13/array \
   /usr/include/c++/13/atomic \
   /usr/include/c++/13/backward/auto_ptr.h \
   /usr/include/c++/13/backward/binders.h \
@@ -1038,6 +1043,7 @@ CMakeFiles/sim_player.dir/src/RendererSDL.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_pl
   /usr/include/c++/13/chrono \
   /usr/include/c++/13/clocale \
   /usr/include/c++/13/cmath \
+  /usr/include/c++/13/compare \
   /usr/include/c++/13/cstddef \
   /usr/include/c++/13/cstdint \
   /usr/include/c++/13/cstdio \
@@ -1930,12 +1936,6 @@ CMakeFiles/sim_player.dir/src/main.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player_te
 
 /usr/include/x86_64-linux-gnu/libavutil/imgutils.h:
 
-/usr/include/c++/13/pstl/glue_algorithm_defs.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/13/include/mmintrin.h:
-
-/usr/include/c++/13/algorithm:
-
 /usr/lib/gcc/x86_64-linux-gnu/13/include/ia32intrin.h:
 
 /usr/include/SDL2/SDL_video.h:
@@ -2021,6 +2021,12 @@ CMakeFiles/sim_player.dir/src/main.cpp.o: /mnt/e/SDU/大五/FFMPEG/sim_player_te
 /mnt/e/SDU/大五/FFMPEG/sim_player_test/src/main.cpp:
 
 /mnt/e/SDU/大五/FFMPEG/sim_player_test/include/player/Player.h:
+
+/usr/include/c++/13/pstl/glue_algorithm_defs.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/13/include/mmintrin.h:
+
+/usr/include/c++/13/algorithm:
 
 /mnt/e/SDU/大五/FFMPEG/sim_player_test/include/player/Demuxer.h:
 

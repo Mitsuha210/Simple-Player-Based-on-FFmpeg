@@ -23,11 +23,13 @@ public:
     void open(const std::string& input_path);
     void start();
     void stop();
+    void seek(double position_seconds);
     void set_error_callback(std::function<void(const std::string&)> callback);
 
     AVFormatContext* format_context() const { return format_context_; }
     const MediaStreams& streams() const { return streams_; }
     bool finished() const { return finished_.load(); }
+    double duration_seconds() const;
 
 private:
     void run();

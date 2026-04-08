@@ -1,5 +1,7 @@
 #include "player/Demuxer.h"
 
+#include <algorithm>
+
 namespace sim_player {
 
 Demuxer::Demuxer(BlockingQueue<PacketPtr>& audio_packets, BlockingQueue<PacketPtr>& video_packets)
@@ -53,6 +55,18 @@ void Demuxer::stop() {
     }
 }
 
+void Demuxer::seek(double position_seconds) {
+    if (format_context_ == nullptr) {
+        throw std::runtime_error("demuxer not opened");
+    }
+
+    const double clamped_seconds = std::max(0.0, position_seconds);
+    const int64_t target = static_cast<int64_t>(clamped_seconds * AV_TIME_BASE);
+    avformat_flush(format_context_);
+    throw_on_ffmpeg_error(av_seek_frame(format_context_, -1, target, AVSEEK_FLAG_BACKWARD), "av_seek_frame failed");
+    finished_.store(false);
+}
+
 void Demuxer::run() {
     try {
         while (running_.load()) {
@@ -101,6 +115,13 @@ void Demuxer::push_eof_packets() {
 
 void Demuxer::set_error_callback(std::function<void(const std::string&)> callback) {
     error_callback_ = std::move(callback);
+}
+
+double Demuxer::duration_seconds() const {
+    if (format_context_ == nullptr || format_context_->duration == AV_NOPTS_VALUE) {
+        return 0.0;
+    }
+    return static_cast<double>(format_context_->duration) / static_cast<double>(AV_TIME_BASE);
 }
 
 }  // namespace sim_player

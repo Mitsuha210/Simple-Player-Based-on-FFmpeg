@@ -35,6 +35,7 @@ public:
 
     void start();
     void stop();
+    void flush();
     bool finished() const { return finished_.load(); }
     void set_error_callback(std::function<void(const std::string&)> callback);
 
@@ -54,6 +55,7 @@ private:
     std::atomic<bool> finished_ {false};
     std::function<void(const std::string&)> error_callback_;
     std::thread worker_;
+    bool renderer_opened_ = false;
 };
 
 }  // namespace sim_player
