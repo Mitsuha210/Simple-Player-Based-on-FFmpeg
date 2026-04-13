@@ -10,6 +10,7 @@ Demuxer::Demuxer(BlockingQueue<PacketPtr>& audio_packets, BlockingQueue<PacketPt
 Demuxer::~Demuxer() {
     stop();
     if (format_context_ != nullptr) {
+        //release AVFormatContext
         avformat_close_input(&format_context_);
     }
 }
@@ -24,7 +25,8 @@ void Demuxer::open(const std::string& input_path) {
 
     format_context_ = context;
 
-    //自动搜寻音视频流编号
+    //find audio and video streams 
+    //find the fittest one automatically
     int audio_index = av_find_best_stream(context, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     int video_index = av_find_best_stream(context, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
 
@@ -42,7 +44,8 @@ void Demuxer::open(const std::string& input_path) {
 void Demuxer::start() {
     finished_.store(false);
     running_.store(true);
-    //创造线程worker_,以this为参数执行run
+    //craete a worker thread
+    //be equivalent to do :generalize a thread and execute this->run()
     worker_ = std::thread(&Demuxer::run, this);
 }
 
@@ -62,7 +65,10 @@ void Demuxer::seek(double position_seconds) {
 
     const double clamped_seconds = std::max(0.0, position_seconds);
     const int64_t target = static_cast<int64_t>(clamped_seconds * AV_TIME_BASE);
-    avformat_flush(format_context_);
+    avformat_flush(format_context_); //clear container layer cache
+    //jump to the vicinity of target time
+    //AVSEEK_FLAG_BACKWARD indicates to search the nearest decodable position backward
+    //can not be precise to a specific frame
     throw_on_ffmpeg_error(av_seek_frame(format_context_, -1, target, AVSEEK_FLAG_BACKWARD), "av_seek_frame failed");
     finished_.store(false);
 }
@@ -70,10 +76,11 @@ void Demuxer::seek(double position_seconds) {
 void Demuxer::run() {
     try {
         while (running_.load()) {
-            PacketPtr packet = make_packet(); // 创建一个pkt指针
+            //allocate a AVPacket
+            PacketPtr packet = make_packet();
             int ret = av_read_frame(format_context_, packet.get());
-            //读到文件结尾时返回AVERROR_EOF(End Of File)
-            if (ret == AVERROR_EOF) { //读到文件末尾
+            //return AVERROR_EOF while read to the end(End Of File)
+            if (ret == AVERROR_EOF) { 
                 // A null packet tells each decoder to flush delayed frames before exiting.
                 push_eof_packets();
                 break;
@@ -105,8 +112,8 @@ void Demuxer::run() {
 void Demuxer::push_eof_packets() {
     if (streams_.audio != nullptr) {
         audio_packets_.push(PacketPtr {});
-        //PacketPtr {}表示“值初始化”，得到一个空指针对象(这里==一个特殊记号)
-        //告诉线程pkt已经读完了
+        //PacketPtr {} indicates to a null packet
+        //a signal of end
     }
     if (streams_.video != nullptr) {
         video_packets_.push(PacketPtr {});

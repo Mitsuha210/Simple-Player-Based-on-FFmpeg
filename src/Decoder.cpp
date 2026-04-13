@@ -5,17 +5,20 @@ namespace sim_player {
 namespace { //匿名命名空间
 
 AVCodecContext* open_codec_context(AVStream* stream) {
+    //find decoder by codec_id
     const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
     if (codec == nullptr) {
         throw std::runtime_error("decoder not found");
     }
 
+    //codec_context is equvalent to an instance object of codec
     AVCodecContext* codec_context = avcodec_alloc_context3(codec);
     if (codec_context == nullptr) {
         throw std::bad_alloc();
     }
 
-    //设置参数
+    //设置参数 by AVStream
+    //Connect the "container layer" and the "encoding/decoding layer"
     int ret = avcodec_parameters_to_context(codec_context, stream->codecpar);
     if (ret < 0) {
         avcodec_free_context(&codec_context);
@@ -25,6 +28,7 @@ AVCodecContext* open_codec_context(AVStream* stream) {
     //打开解码器
     ret = avcodec_open2(codec_context, codec, nullptr);
     if (ret < 0) {
+        //free if opening failed
         avcodec_free_context(&codec_context);
         throw std::runtime_error("avcodec_open2 failed: " + ffmpeg_error_to_string(ret));
     }
@@ -80,6 +84,7 @@ void Decoder::stop() {
     }
 }
 
+//clear out internal states and cache of decoder
 void Decoder::flush() {
     if (codec_context_ != nullptr) {
         avcodec_flush_buffers(codec_context_);
@@ -114,11 +119,13 @@ void Decoder::run() {
 
 void Decoder::decode_packet(AVPacket* packet) {
     int ret = avcodec_send_packet(codec_context_, packet);
+    //EAGAIN indicates that cannot send now
     if (ret == AVERROR(EAGAIN)) {
         return;
     }
     throw_on_ffmpeg_error(ret, "avcodec_send_packet failed");
 
+    //a packet may contains more than 1 frame
     while (running_.load()) {
         FramePtr frame = make_frame();//创建一个AVFrame的unique_ptr
         ret = avcodec_receive_frame(codec_context_, frame.get());
@@ -137,7 +144,7 @@ void Decoder::decode_packet(AVPacket* packet) {
                 break;
             }
         }
-        //不存在时直接放入渲染器进行渲染 
+        //frame queue不存在时直接放入渲染器进行渲染 
         else if (kind_ == Kind::Video && video_renderer_ != nullptr) {
             video_renderer_->render(std::move(frame), master_clock_, stream_->time_base);
         }

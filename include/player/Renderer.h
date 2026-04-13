@@ -33,9 +33,9 @@ public:
 private:
     static void ensure_sdl_initialized();
 
-    SDL_AudioDeviceID device_id_ = 0;
-    SwrContext* swr_context_ = nullptr;
-    AVChannelLayout target_layout_ {};
+    SDL_AudioDeviceID device_id_ = 0; //opened audio device handle
+    SwrContext* swr_context_ = nullptr; //resampling context
+    AVChannelLayout target_layout_ {};//target channel layout(Mono,Stereo,e.g.)
     int target_sample_rate_ = 0;
     AVSampleFormat target_sample_format_ = AV_SAMPLE_FMT_NONE;
     int bytes_per_sample_ = 0;
@@ -70,8 +70,8 @@ private:
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
-    SDL_Texture* texture_ = nullptr;
-    SwsContext* sws_context_ = nullptr;
+    SDL_Texture* texture_ = nullptr; //treat the frame itself as a texture
+    SwsContext* sws_context_ = nullptr; //pixel format conversion context
     FramePtr yuv_frame_;
     std::vector<std::uint8_t> yuv_buffer_;
     int width_ = 0;
@@ -79,6 +79,7 @@ private:
     double last_video_pts_ = 0.0;
     bool has_last_video_pts_ = false;
     double displayed_pts_ = 0.0;
+    //used for displaying bottom progress bar and dragging status
     double progress_position_seconds_ = 0.0;
     double progress_duration_seconds_ = 0.0;
     bool dragging_progress_ = false;

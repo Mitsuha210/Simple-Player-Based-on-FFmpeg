@@ -12,7 +12,7 @@ namespace sim_player {
 template <typename T>
 class BlockingQueue {
 public:
-    explicit BlockingQueue(std::size_t max_size = 128) : max_size_(max_size) {} //防止隐式转换
+    explicit BlockingQueue(std::size_t max_size = 128) : max_size_(max_size) {} //explicit->防止隐式转换
 
     bool push(T value) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -53,6 +53,8 @@ public:
     void abort() {
         std::lock_guard<std::mutex> lock(mutex_);
         //唤醒所有可能在等待的线程
+        //It is dangeous to kill threads in forced, which may cause unreleased resources or unlocked mutex.
+        //A better approach would be to send a termination signal, allowing  thread to terminate safely on its own.
         aborted_ = true;
         not_empty_.notify_all();
         not_full_.notify_all();
@@ -66,6 +68,7 @@ public:
         not_full_.notify_all();
     }
 
+    //clear queue and set aborted_ as false
     void reset() {
         std::lock_guard<std::mutex> lock(mutex_);
         aborted_ = false;

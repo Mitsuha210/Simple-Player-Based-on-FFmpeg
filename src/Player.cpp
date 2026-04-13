@@ -12,6 +12,7 @@ Player::~Player() {
 }
 
 void Player::open(const std::string& input_path) {
+    //clear status
     error_.store(false);
     stopping_.store(false);
     paused_.store(false);
@@ -23,6 +24,7 @@ void Player::open(const std::string& input_path) {
     demuxer_.open(input_path);
     demuxer_.set_error_callback([this](const std::string& message) { report_error(message); });
 
+    //create stream decoder
     const MediaStreams& streams = demuxer_.streams();
     if (streams.audio != nullptr) {
         audio_decoder_ = std::make_unique<Decoder>(
@@ -37,6 +39,7 @@ void Player::open(const std::string& input_path) {
     }
 
     opened_.store(true);
+    //initialize progress bar
     set_progress_preview(0.0, false);
 }
 
@@ -45,10 +48,11 @@ void Player::play() {
         throw std::runtime_error("player not opened");
     }
 
+    //?????? seek ?????????????
     seek_internal(current_position_seconds(), true);
 }
 
-void Player::pause() {
+void Player::pause() { //stop the work thread
     if (!opened_.load()) {
         return;
     }
@@ -57,6 +61,7 @@ void Player::pause() {
         return;
     }
 
+    //retrieve current position
     const double paused_position = current_position_seconds();
     paused_.store(true);
     playing_.store(false);
@@ -122,21 +127,26 @@ void Player::pump_video() {
         return;
     }
 
+    //try to retrieve only one frame each time 
     auto item = video_frames_.try_pop();
     if (item.has_value()) {
         video_renderer_.render(std::move(item->frame), audio_clock_, item->time_base);
     }
+    //?????
     set_progress_preview(current_position_seconds(), false);
 }
 
 void Player::refresh_video() {
+    //redraw current texture
     video_renderer_.present();
 }
 
+//jump to position_seconds
 void Player::seek_to(double position_seconds) {
     seek_internal(position_seconds, !paused_.load());
 }
 
+//jump to current_sencode + dalta_seconds(relative_seconds)
 void Player::seek_relative(double delta_seconds) {
     seek_to(current_position_seconds() + delta_seconds);
 }
@@ -155,6 +165,7 @@ void Player::set_progress_preview(double position_seconds, bool dragging) {
     video_renderer_.set_progress(position_seconds, duration_seconds(), dragging);
 }
 
+//Delegate the mouse event logic to the renderer for processing
 bool Player::is_progress_bar_hit(int x, int y) const {
     return video_renderer_.is_progress_bar_hit(x, y);
 }
@@ -183,11 +194,13 @@ void Player::seek_internal(double position_seconds, bool resume_after_seek) {
     const double duration = duration_seconds();
     const double clamped = duration > 0.0 ? std::clamp(position_seconds, 0.0, duration) : std::max(0.0, position_seconds);
 
+    //stop threads before updating status
     stop_workers();
     audio_packets_.reset();
     video_packets_.reset();
     video_frames_.reset();
 
+    //not only clear waiting queue,but also clear out the inside cache of decoder
     if (audio_decoder_ != nullptr) {
         audio_decoder_->flush();
     }
@@ -195,7 +208,10 @@ void Player::seek_internal(double position_seconds, bool resume_after_seek) {
         video_decoder_->flush();
     }
 
+    //change reading position
     demuxer_.seek(clamped);
+
+    //update clock and states of renderer
     audio_clock_.set(clamped);
     audio_renderer_.set_paused(!resume_after_seek);
     audio_renderer_.flush();
